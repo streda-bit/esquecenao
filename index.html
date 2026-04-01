@@ -282,7 +282,7 @@ textarea{resize:vertical;min-height:80px}
 <div id="auth-screen">
   <button class="theme-toggle" onclick="toggleTheme()" id="auth-theme-btn">🌙</button>
   <div class="auth-card">
-    <div class="auth-logo">EsqueceNão<span>.</span></div>
+    <div class="auth-logo" onclick="handleLogoClick()" style="cursor:default;">EsqueceNão<span>.</span></div>
     <div class="auth-tagline">Follow-up que não esquece</div>
     <div class="auth-tabs">
       <button class="auth-tab active" id="tab-login" onclick="switchTab('login')">Entrar</button>
@@ -640,6 +640,19 @@ textarea{resize:vertical;min-height:80px}
 </div>
 
 <script>
+// ── ADMIN ACCESS (triple click on logo)
+let logoClicks=0,logoTimer=null;
+function handleLogoClick(){
+  logoClicks++;
+  if(logoTimer)clearTimeout(logoTimer);
+  logoTimer=setTimeout(()=>logoClicks=0,800);
+  if(logoClicks>=3){
+    logoClicks=0;
+    document.getElementById('auth-screen').style.display='none';
+    document.getElementById('admin-screen').style.display='block';
+  }
+}
+
 // ── THEME
 let currentTheme=localStorage.getItem('en-theme')||'dark';
 function applyTheme(t){
@@ -1370,5 +1383,216 @@ window.addEventListener('load',async()=>{
   });
 });
 </script>
+
+<!-- ═══════════════ ADMIN SCREEN ═══════════════ -->
+<div id="admin-screen" style="display:none;min-height:100vh;background:var(--bg);color:var(--text);">
+
+  <!-- ADMIN LOGIN -->
+  <div id="admin-login" style="min-height:100vh;display:flex;align-items:center;justify-content:center;">
+    <div style="width:360px;background:var(--bg2);border:1px solid var(--border2);border-radius:20px;padding:32px;">
+      <div style="font-size:13px;color:var(--accent);font-family:var(--mono);text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">Admin</div>
+      <div style="font-size:20px;font-weight:700;letter-spacing:-.4px;margin-bottom:24px;color:var(--text);">EsqueceNão Admin</div>
+      <div class="auth-msg auth-error" id="admin-error"></div>
+      <div class="form-row"><label>Senha mestre</label><input type="password" id="admin-pass" placeholder="••••••••"></div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="adminLogin()">Entrar →</button>
+    </div>
+  </div>
+
+  <!-- ADMIN DASHBOARD -->
+  <div id="admin-dash" style="display:none;">
+    <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:16px 32px;display:flex;align-items:center;justify-content:space-between;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="font-size:16px;font-weight:700;color:var(--text);">EsqueceNão<span style="color:var(--accent)">.</span></div>
+        <div style="font-size:11px;font-family:var(--mono);background:var(--accent-bg);color:var(--accent);padding:2px 8px;border-radius:999px;border:1px solid var(--accent-border);">ADMIN</div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;">
+        <div style="font-size:12px;color:var(--text2);font-family:var(--mono);" id="admin-last-updated"></div>
+        <button class="btn btn-sm" onclick="loadAdminData()">↻ Atualizar</button>
+        <button class="btn btn-sm" onclick="adminLogout()">Sair</button>
+      </div>
+    </div>
+
+    <div style="padding:32px;max-width:1200px;margin:0 auto;">
+
+      <!-- KPI CARDS -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px;" id="admin-kpis"></div>
+
+      <!-- CHARTS ROW -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px;">
+        <!-- MRR / Revenue -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:20px;">
+          <div style="font-size:11px;color:var(--text2);font-family:var(--mono);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Receita Mensal (MRR)</div>
+          <div style="font-size:28px;font-weight:700;letter-spacing:-1px;color:var(--accent);" id="admin-mrr">R$0</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:4px;" id="admin-mrr-sub"></div>
+        </div>
+        <!-- Conversion -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:20px;">
+          <div style="font-size:11px;color:var(--text2);font-family:var(--mono);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Conversão Free → Pro</div>
+          <div style="font-size:28px;font-weight:700;letter-spacing:-1px;color:var(--green);" id="admin-conversion">0%</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:4px;" id="admin-conversion-sub"></div>
+        </div>
+      </div>
+
+      <!-- ALERTS -->
+      <div id="admin-alerts" style="margin-bottom:24px;"></div>
+
+      <!-- FILTERS -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+        <button class="filter-chip active" data-af="all" onclick="adminFilter('all',this)">Todas</button>
+        <button class="filter-chip" data-af="free" onclick="adminFilter('free',this)">Free</button>
+        <button class="filter-chip" data-af="pro" onclick="adminFilter('pro',this)">Pro</button>
+        <button class="filter-chip" data-af="equipe" onclick="adminFilter('equipe',this)">Equipe</button>
+        <button class="filter-chip" data-af="limit" onclick="adminFilter('limit',this)">⚠ No limite</button>
+      </div>
+
+      <!-- LOJAS TABLE -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden;">
+        <div style="display:grid;grid-template-columns:2fr 1.5fr 0.8fr 0.8fr 0.8fr 1fr 120px;padding:10px 20px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);font-family:var(--mono);text-transform:uppercase;letter-spacing:.8px;">
+          <div>Loja</div><div>E-mail</div><div>Plano</div><div>Leads</div><div>Indicações</div><div>Cadastro</div><div>Ações</div>
+        </div>
+        <div id="admin-lojas-rows"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ── ADMIN
+const ADMIN_HASH = btoa('WanrltwAezakmi1998@');
+let adminLojas = [], adminFilter_ = 'all';
+
+function adminLogin(){
+  const pass = document.getElementById('admin-pass').value;
+  if(btoa(pass) !== ADMIN_HASH){
+    const e=document.getElementById('admin-error');
+    e.textContent='Senha incorreta.';e.style.display='block';
+    return;
+  }
+  document.getElementById('admin-login').style.display='none';
+  document.getElementById('admin-dash').style.display='block';
+  loadAdminData();
+}
+
+function adminLogout(){
+  document.getElementById('admin-screen').style.display='none';
+  document.getElementById('auth-screen').style.display='flex';
+  document.getElementById('admin-pass').value='';
+  document.getElementById('admin-login').style.display='flex';
+  document.getElementById('admin-dash').style.display='none';
+}
+
+async function loadAdminData(){
+  document.getElementById('admin-last-updated').textContent='Carregando...';
+  // Load all lojas with lead counts
+  const{data:lojas}=await supa.from('lojas').select('*').order('created_at',{ascending:false});
+  const{data:leads}=await supa.from('leads').select('loja_id');
+  const{data:indicacoes}=await supa.from('indicacoes').select('loja_referente_id,pago');
+
+  // Count leads per loja
+  const leadCount={};
+  (leads||[]).forEach(l=>{leadCount[l.loja_id]=(leadCount[l.loja_id]||0)+1;});
+
+  // Count indicacoes per loja
+  const refCount={};
+  (indicacoes||[]).filter(i=>i.pago).forEach(i=>{refCount[i.loja_referente_id]=(refCount[i.loja_referente_id]||0)+1;});
+
+  adminLojas=(lojas||[]).map(l=>({
+    ...l,
+    leadCount:leadCount[l.id]||0,
+    refCount:refCount[l.id]||0
+  }));
+
+  renderAdminKpis();
+  renderAdminAlerts();
+  renderAdminLojas();
+
+  document.getElementById('admin-last-updated').textContent=
+    'Atualizado às '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+}
+
+function renderAdminKpis(){
+  const total=adminLojas.length;
+  const free=adminLojas.filter(l=>l.plano==='free').length;
+  const pro=adminLojas.filter(l=>l.plano==='pro').length;
+  const equipe=adminLojas.filter(l=>l.plano==='equipe').length;
+  const atLimit=adminLojas.filter(l=>l.plano==='free'&&l.leadCount>=15).length;
+  const mrr=(pro*79)+(equipe*149);
+  const ltv=pro+equipe>0?Math.round(mrr/((pro+equipe))*12):0;
+  const conv=total>0?Math.round((pro+equipe)/total*100):0;
+
+  document.getElementById('admin-mrr').textContent='R$'+mrr.toLocaleString('pt-BR');
+  document.getElementById('admin-mrr-sub').textContent=`${pro} Pro × R$79 + ${equipe} Equipe × R$149`;
+  document.getElementById('admin-conversion').textContent=conv+'%';
+  document.getElementById('admin-conversion-sub').textContent=`${pro+equipe} pagantes de ${total} cadastros`;
+
+  document.getElementById('admin-kpis').innerHTML=`
+    <div class="stat-card"><div class="stat-label">Total de Lojas</div><div class="stat-value">${total}</div><div class="stat-sub">cadastradas</div></div>
+    <div class="stat-card"><div class="stat-label">Plano Free</div><div class="stat-value">${free}</div><div class="stat-sub">${atLimit} no limite ⚠</div></div>
+    <div class="stat-card"><div class="stat-label">Plano Pro + Equipe</div><div class="stat-value c-accent">${pro+equipe}</div><div class="stat-sub">LTV estimado R$${ltv.toLocaleString('pt-BR')}/ano</div></div>
+    <div class="stat-card"><div class="stat-label">MRR</div><div class="stat-value c-green">R$${mrr.toLocaleString('pt-BR')}</div><div class="stat-sub">receita recorrente/mês</div></div>
+  `;
+}
+
+function renderAdminAlerts(){
+  const atLimit=adminLojas.filter(l=>l.plano==='free'&&l.leadCount>=15);
+  const el=document.getElementById('admin-alerts');
+  if(!atLimit.length){el.innerHTML='';return;}
+  el.innerHTML=`
+    <div style="background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:var(--r2);padding:14px 18px;display:flex;align-items:center;gap:12px;font-size:13px;">
+      <div style="width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0;animation:pulse 2s infinite;"></div>
+      <div style="color:var(--accent);flex:1;"><strong>${atLimit.length} loja${atLimit.length!==1?'s':''}</strong> atingiu o limite de 15 leads e ainda não fez upgrade. Oportunidade de conversão!</div>
+    </div>`;
+}
+
+function adminFilter(f, el){
+  adminFilter_=f;
+  document.querySelectorAll('[data-af]').forEach(c=>c.classList.remove('active'));
+  if(el)el.classList.add('active');
+  renderAdminLojas();
+}
+
+function renderAdminLojas(){
+  let filtered=adminLojas;
+  if(adminFilter_==='free') filtered=adminLojas.filter(l=>l.plano==='free');
+  else if(adminFilter_==='pro') filtered=adminLojas.filter(l=>l.plano==='pro');
+  else if(adminFilter_==='equipe') filtered=adminLojas.filter(l=>l.plano==='equipe');
+  else if(adminFilter_==='limit') filtered=adminLojas.filter(l=>l.plano==='free'&&l.leadCount>=15);
+
+  const planoBadge={
+    free:`<span class="badge" style="background:var(--bg3);color:var(--text2);border:1px solid var(--border2);">FREE</span>`,
+    pro:`<span class="badge badge-followup">PRO</span>`,
+    equipe:`<span class="badge badge-convertido">EQUIPE</span>`
+  };
+
+  const el=document.getElementById('admin-lojas-rows');
+  if(!filtered.length){
+    el.innerHTML=`<div class="empty"><div class="empty-title">Nenhuma loja encontrada</div></div>`;
+    return;
+  }
+  el.innerHTML=filtered.map(l=>`
+    <div style="display:grid;grid-template-columns:2fr 1.5fr 0.8fr 0.8fr 0.8fr 1fr 120px;padding:14px 20px;border-bottom:1px solid var(--border);align-items:center;font-size:13px;" class="table-row">
+      <div><div style="font-weight:600;color:var(--text);">${l.nome_loja}</div><div style="font-size:11px;color:var(--text2);margin-top:2px;font-family:var(--mono);">${l.ref_code||'—'}</div></div>
+      <div style="font-size:12px;color:var(--text2);font-family:var(--mono);">${l.email}</div>
+      <div>${planoBadge[l.plano]||planoBadge.free}</div>
+      <div style="font-family:var(--mono);font-size:13px;${l.leadCount>=15&&l.plano==='free'?'color:var(--accent);font-weight:600;':''}">${l.leadCount}${l.plano==='free'?'/15':''}</div>
+      <div style="font-family:var(--mono);font-size:13px;color:var(--green);">${l.refCount>0?'+'+l.refCount:'—'}</div>
+      <div style="font-size:11px;color:var(--text2);font-family:var(--mono);">${l.created_at?new Date(l.created_at).toLocaleDateString('pt-BR'):'—'}</div>
+      <div style="display:flex;gap:5px;">
+        <button class="icon-btn" title="Dar Pro grátis" onclick="adminGivePro('${l.id}','${l.email}')" style="font-size:10px;width:auto;padding:0 8px;">⭐ Pro</button>
+      </div>
+    </div>`).join('');
+}
+
+async function adminGivePro(id, email){
+  if(!confirm(`Dar plano Pro grátis para ${email}?`))return;
+  await supa.from('lojas').update({plano:'pro'}).eq('id',id);
+  showToast(`Plano Pro ativado para ${email}! ✅`);
+  loadAdminData();
+}
+
+document.getElementById('admin-pass').addEventListener('keydown',e=>{if(e.key==='Enter')adminLogin();});
+</script>
+
 </body>
 </html>
