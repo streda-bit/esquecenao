@@ -743,14 +743,22 @@ async function doLogin(){
   btn.textContent='Entrar →';btn.disabled=false;
   if(error){
     if(error.message.includes('Email not confirmed')){
-      showErr('Confirme seu e-mail antes de entrar. Verifique sua caixa de entrada.');
-    } else {
+      showErr('Confirme seu e-mail antes de entrar. Verifique sua caixa de entrada. 📧');
+    } else if(error.message.includes('Invalid login')){
       showErr('E-mail ou senha incorretos.');
+    } else {
+      showErr('Erro ao entrar: '+error.message);
     }
     return;
   }
+  // Block unconfirmed emails
+  if(!data.user.email_confirmed_at){
+    await supa.auth.signOut();
+    showErr('Confirme seu e-mail antes de entrar. Verifique sua caixa de entrada. 📧');
+    return;
+  }
   const loja=await getLojaByUserId(data.user.id);
-  if(!loja){showErr('Conta não encontrada. Tente se cadastrar novamente.');return;}
+  if(!loja){showErr('Perfil não encontrado. Entre em contato com o suporte.');return;}
   enterApp(loja);
 }
 
