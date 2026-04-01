@@ -1517,20 +1517,26 @@ function renderAdminKpis(){
   const pro=adminLojas.filter(l=>l.plano==='pro').length;
   const equipe=adminLojas.filter(l=>l.plano==='equipe').length;
   const atLimit=adminLojas.filter(l=>l.plano==='free'&&l.leadCount>=15).length;
-  const mrr=(pro*79)+(equipe*149);
-  const ltv=pro+equipe>0?Math.round(mrr/((pro+equipe))*12):0;
+  const proReal=adminLojas.filter(l=>l.plano==='pro'&&!l.plano_cortesia).length;
+  const procortesia=adminLojas.filter(l=>l.plano==='pro'&&l.plano_cortesia).length;
+  const equipeReal=adminLojas.filter(l=>l.plano==='equipe'&&!l.plano_cortesia).length;
+  const equipeCortesia=adminLojas.filter(l=>l.plano==='equipe'&&l.plano_cortesia).length;
+  const mrr=(proReal*79)+(equipeReal*149);
+  const totalPagantes=proReal+equipeReal;
+  const ltv=totalPagantes>0?Math.round(mrr/totalPagantes*12):0;
   const conv=total>0?Math.round((pro+equipe)/total*100):0;
 
   document.getElementById('admin-mrr').textContent='R$'+mrr.toLocaleString('pt-BR');
-  document.getElementById('admin-mrr-sub').textContent=`${pro} Pro × R$79 + ${equipe} Equipe × R$149`;
+  const cortesiaTotal=procortesia+equipeCortesia;
+  document.getElementById('admin-mrr-sub').textContent=`${proReal} Pro + ${equipeReal} Equipe pagantes${cortesiaTotal>0?' · '+cortesiaTotal+' cortesia (não contabilizado)':''}`;
   document.getElementById('admin-conversion').textContent=conv+'%';
   document.getElementById('admin-conversion-sub').textContent=`${pro+equipe} pagantes de ${total} cadastros`;
 
   document.getElementById('admin-kpis').innerHTML=`
     <div class="stat-card"><div class="stat-label">Total de Lojas</div><div class="stat-value">${total}</div><div class="stat-sub">cadastradas</div></div>
     <div class="stat-card"><div class="stat-label">Plano Free</div><div class="stat-value">${free}</div><div class="stat-sub">${atLimit} no limite ⚠</div></div>
-    <div class="stat-card"><div class="stat-label">Plano Pro + Equipe</div><div class="stat-value c-accent">${pro+equipe}</div><div class="stat-sub">LTV estimado R$${ltv.toLocaleString('pt-BR')}/ano</div></div>
-    <div class="stat-card"><div class="stat-label">MRR</div><div class="stat-value c-green">R$${mrr.toLocaleString('pt-BR')}</div><div class="stat-sub">receita recorrente/mês</div></div>
+    <div class="stat-card"><div class="stat-label">Pagantes reais</div><div class="stat-value c-accent">${totalPagantes}</div><div class="stat-sub">${cortesiaTotal} cortesia · LTV R$${ltv.toLocaleString('pt-BR')}/ano</div></div>
+    <div class="stat-card"><div class="stat-label">MRR real</div><div class="stat-value c-green">R$${mrr.toLocaleString('pt-BR')}</div><div class="stat-sub">cortesias excluídas</div></div>
   `;
 }
 
@@ -1574,20 +1580,30 @@ function renderAdminLojas(){
     <div style="display:grid;grid-template-columns:2fr 1.5fr 0.8fr 0.8fr 0.8fr 1fr 120px;padding:14px 20px;border-bottom:1px solid var(--border);align-items:center;font-size:13px;" class="table-row">
       <div><div style="font-weight:600;color:var(--text);">${l.nome_loja}</div><div style="font-size:11px;color:var(--text2);margin-top:2px;font-family:var(--mono);">${l.ref_code||'—'}</div></div>
       <div style="font-size:12px;color:var(--text2);font-family:var(--mono);">${l.email}</div>
-      <div>${planoBadge[l.plano]||planoBadge.free}</div>
+      <div style="display:flex;align-items:center;gap:4px;">${planoBadge[l.plano]||planoBadge.free}${l.plano_cortesia?`<span style="font-size:9px;color:var(--text2);font-family:var(--mono);">cortesia</span>`:''}</div>
       <div style="font-family:var(--mono);font-size:13px;${l.leadCount>=15&&l.plano==='free'?'color:var(--accent);font-weight:600;':''}">${l.leadCount}${l.plano==='free'?'/15':''}</div>
       <div style="font-family:var(--mono);font-size:13px;color:var(--green);">${l.refCount>0?'+'+l.refCount:'—'}</div>
       <div style="font-size:11px;color:var(--text2);font-family:var(--mono);">${l.created_at?new Date(l.created_at).toLocaleDateString('pt-BR'):'—'}</div>
       <div style="display:flex;gap:5px;">
-        <button class="icon-btn" title="Dar Pro grátis" onclick="adminGivePro('${l.id}','${l.email}')" style="font-size:10px;width:auto;padding:0 8px;">⭐ Pro</button>
+        ${l.plano==='free'
+          ?`<button class="icon-btn" title="Dar Pro grátis" onclick="adminGivePro('${l.id}','${l.email}')" style="font-size:10px;width:auto;padding:0 8px;">⭐ Pro</button>`
+          :`<button class="icon-btn" title="Remover plano" onclick="adminRemovePlan('${l.id}','${l.email}')" style="font-size:10px;width:auto;padding:0 8px;color:var(--red);border-color:var(--red-bg);">✕ Free</button>`
+        }
       </div>
     </div>`).join('');
 }
 
 async function adminGivePro(id, email){
   if(!confirm(`Dar plano Pro grátis para ${email}?`))return;
-  await supa.from('lojas').update({plano:'pro'}).eq('id',id);
-  showToast(`Plano Pro ativado para ${email}! ✅`);
+  await supa.from('lojas').update({plano:'pro', plano_cortesia:true}).eq('id',id);
+  showToast(`Plano Pro (cortesia) ativado para ${email}! ✅`);
+  loadAdminData();
+}
+
+async function adminRemovePlan(id, email){
+  if(!confirm(`Remover plano pago de ${email} e voltar para Free?`))return;
+  await supa.from('lojas').update({plano:'free', plano_cortesia:false}).eq('id',id);
+  showToast(`Plano removido. ${email} voltou para Free.`);
   loadAdminData();
 }
 
