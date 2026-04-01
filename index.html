@@ -274,6 +274,7 @@ textarea{resize:vertical;min-height:80px}
 @media(max-width:900px){.stats-grid{grid-template-columns:repeat(2,1fr)}.kanban{grid-template-columns:repeat(2,1fr)}.table-header,.table-row{grid-template-columns:2fr 1fr 1fr 80px}.table-header>*:nth-child(3),.table-row>*:nth-child(3),.table-header>*:nth-child(5),.table-row>*:nth-child(5){display:none}.ref-stats-row{grid-template-columns:1fr 1fr}.upgrade-plans{grid-template-columns:1fr}}
 @media(max-width:640px){.sidebar{display:none}.main{padding:20px}.stats-grid{grid-template-columns:repeat(2,1fr)}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body data-theme="dark">
 
@@ -656,13 +657,33 @@ let leads=[],filter='all',editId=null,detailId=null,waId=null,user=null;
 let selPlan='pro',billingPeriod='mensal';
 const FREE_LIMIT=15;
 
-// ── STORAGE
-const ACC_KEY='en-acc-v1';
-const lKey=e=>'en-leads-v1-'+e.replace(/[^a-z0-9]/gi,'_');
-async function getAcc(){try{const r=await window.storage.get(ACC_KEY,true);return r?JSON.parse(r.value):{}}catch{return{}}}
-async function setAcc(a){try{await window.storage.set(ACC_KEY,JSON.stringify(a),true)}catch{}}
-async function getLeads(e){try{const r=await window.storage.get(lKey(e));return r?JSON.parse(r.value):[]}catch{return[]}}
-async function saveLeads(){try{await window.storage.set(lKey(user.email),JSON.stringify(leads))}catch{}}
+// ── SUPABASE
+const SUPA_URL='https://raaylfwxaolsuxpdtekt.supabase.co';
+const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJhYXlsZnd4YW9sc3V4cGR0ZWt0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNDM2MjcsImV4cCI6MjA5MDYxOTYyN30.RR75quafdr8PyXJFIsXRfs7vn1C1-EeTjMCHvCABpuQ';
+const supa=supabase.createClient(SUPA_URL,SUPA_KEY,{
+  auth:{
+    autoRefreshToken:true,
+    persistSession:true,
+    detectSessionInUrl:true
+  }
+});
+
+// ── STORAGE (Supabase)
+async function getLojaByUserId(uid){
+  const{data}=await supa.from('lojas').select('*').eq('auth_id',uid).single();
+  return data||null;
+}
+async function setAccUpdate(email,updates){
+  const{error}=await supa.from('lojas').update(updates).eq('email',email);
+  return !error;
+}
+async function getLeadsByLoja(lojaId){
+  const{data}=await supa.from('leads').select('*').eq('loja_id',lojaId).order('created_at',{ascending:false});
+  return data||[];
+}
+async function saveLeads(){
+  // leads are saved individually
+}
 
 // ── REF CODE
 function genRefCode(s){
@@ -675,14 +696,17 @@ function genRefCode(s){
 // ── PLAN
 function effectivePlan(){
   if(!user)return'free';
-  if(user.plan==='pro'||user.plan==='equipe')return user.plan;
-  if(user.bonusExpiry&&new Date(user.bonusExpiry)>new Date())return'pro-ref';
+  const p=user.plano||user.plan||'free';
+  if(p==='pro'||p==='equipe')return p;
+  const bonusExp=user.bonus_expiry||user.bonusExpiry;
+  if(bonusExp&&new Date(bonusExp)>new Date())return'pro-ref';
   return'free';
 }
 function isAtLimit(){return effectivePlan()==='free'&&leads.length>=FREE_LIMIT;}
 function bonusMonthsLeft(){
-  if(!user?.bonusExpiry)return 0;
-  const now=new Date(),exp=new Date(user.bonusExpiry);
+  const bonusExp=user?.bonus_expiry||user?.bonusExpiry;
+  if(!bonusExp)return 0;
+  const now=new Date(),exp=new Date(bonusExp);
   if(exp<=now)return 0;
   return Math.ceil((exp-now)/(30*24*60*60*1000));
 }
@@ -692,11 +716,10 @@ async function validateRefCode(el){
   const code=el.value.trim().toUpperCase();
   const badge=document.getElementById('ref-valid-badge');
   if(code.length<6){badge.style.display='none';return;}
-  const acc=await getAcc();
-  const found=Object.values(acc).find(a=>a.refCode===code);
-  badge.style.display=found?'inline':'none';
-  badge.textContent=found?'✓ válido':'✗ inválido';
-  badge.style.color=found?'var(--accent)':'var(--red)';
+  const{data}=await supa.from('lojas').select('id').eq('ref_code',code).single();
+  badge.style.display=data?'inline':'none';
+  badge.textContent=data?'✓ válido':'✗ inválido';
+  badge.style.color=data?'var(--accent)':'var(--red)';
 }
 
 function switchTab(t){
@@ -714,9 +737,21 @@ async function doLogin(){
   const email=document.getElementById('li-email').value.trim().toLowerCase();
   const pass=document.getElementById('li-pass').value;
   if(!email||!pass){showErr('Preencha todos os campos.');return;}
-  const acc=await getAcc();
-  if(!acc[email]||atob(acc[email].h)!==pass){showErr('E-mail ou senha incorretos.');return;}
-  enterApp(acc[email]);
+  const btn=document.querySelector('#login-form .btn-primary');
+  btn.textContent='Entrando...';btn.disabled=true;
+  const{data,error}=await supa.auth.signInWithPassword({email,password:pass});
+  btn.textContent='Entrar →';btn.disabled=false;
+  if(error){
+    if(error.message.includes('Email not confirmed')){
+      showErr('Confirme seu e-mail antes de entrar. Verifique sua caixa de entrada.');
+    } else {
+      showErr('E-mail ou senha incorretos.');
+    }
+    return;
+  }
+  const loja=await getLojaByUserId(data.user.id);
+  if(!loja){showErr('Conta não encontrada. Tente se cadastrar novamente.');return;}
+  enterApp(loja);
 }
 
 async function doRegister(){
@@ -728,32 +763,82 @@ async function doRegister(){
   if(!store||!email||!pass){showErr('Preencha todos os campos.');return;}
   if(pass.length<6){showErr('Senha deve ter ao menos 6 caracteres.');return;}
   if(pass!==pass2){showErr('As senhas não coincidem.');return;}
-  const acc=await getAcc();
-  if(acc[email]){showErr('E-mail já cadastrado.');return;}
+  // Validate ref code
   let referredBy=null;
   if(refCode){
-    const referrer=Object.values(acc).find(a=>a.refCode===refCode);
+    const{data:referrer}=await supa.from('lojas').select('id,email').eq('ref_code',refCode).single();
     if(!referrer){showErr('Código de indicação inválido.');return;}
     referredBy=referrer.email;
   }
-  const newAcc={store,email,h:btoa(pass),plan:'free',refCode:genRefCode(store),referredBy,referrals:[],bonusExpiry:null,createdAt:Date.now()};
-  acc[email]=newAcc;
-  await setAcc(acc);
-  showOk('Conta criada! Entrando...');
-  setTimeout(()=>enterApp(newAcc),700);
+  // Detect device fingerprint
+  const deviceId=getDeviceId();
+  // Check IP/device abuse (max 2 free accounts per device)
+  const{data:deviceCheck}=await supa.from('lojas').select('id').eq('device_id',deviceId).eq('plano','free');
+  if(deviceCheck&&deviceCheck.length>=2){
+    showErr('Limite de contas gratuitas atingido neste dispositivo. Faça upgrade para continuar.');
+    return;
+  }
+  const btn=document.querySelector('#register-form .btn-primary');
+  btn.textContent='Criando conta...';btn.disabled=true;
+  // Create auth user — Supabase sends confirmation email automatically
+  const{data,error}=await supa.auth.signUp({
+    email,
+    password:pass,
+    options:{
+      emailRedirectTo:'https://www.esquecenao.com.br',
+      data:{nome_loja:store}
+    }
+  });
+  btn.textContent='Criar conta grátis →';btn.disabled=false;
+  if(error){
+    if(error.message.includes('already registered')){
+      showErr('Este e-mail já está cadastrado.');
+    } else {
+      showErr('Erro ao criar conta: '+error.message);
+    }
+    return;
+  }
+  // Create loja profile
+  await supa.from('lojas').insert([{
+    auth_id:data.user.id,
+    email,
+    nome_loja:store,
+    plano:'free',
+    ref_code:genRefCode(store),
+    referred_by:referredBy,
+    device_id:deviceId,
+    bonus_expiry:null
+  }]);
+  showOk('Conta criada! Verifique seu e-mail para confirmar o cadastro antes de entrar. 📧');
 }
 
 async function enterApp(u){
-  user=u;leads=await getLeads(u.email);
+  user=u;
+  leads=await getLeadsByLoja(u.id);
+  leads=leads.map(l=>({
+    id:l.id,
+    name:l.nome,
+    phone:l.telefone,
+    interest:l.interesse,
+    source:l.origem,
+    status:l.status,
+    date1:l.data_contato,
+    nextDate:l.proximo_followup,
+    notes:l.observacoes,
+    history:l.historico||[],
+    createdAt:new Date(l.created_at).getTime(),
+    updatedAt:l.updated_at?new Date(l.updated_at).getTime():null
+  }));
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('app-screen').style.display='block';
-  document.getElementById('sb-store').textContent=u.store;
+  document.getElementById('sb-store').textContent=u.nome_loja||u.store;
   document.getElementById('sb-email').textContent=u.email;
   init();
 }
 
-function doLogout(){
-  user=null;leads=[];
+async function doLogout(){
+  await supa.auth.signOut();
+  user=null;leads=[];filter='all';
   document.getElementById('app-screen').style.display='none';
   document.getElementById('auth-screen').style.display='flex';
   document.getElementById('li-email').value='';document.getElementById('li-pass').value='';
@@ -797,30 +882,33 @@ function updatePlanWidget(){
 
 // ── REFERRAL
 function renderReferral(){
-  document.getElementById('ref-code-display').textContent=user?.refCode||'—';
-  const refs=user?.referrals||[];
-  const converted=refs.filter(r=>r.paid);
-  document.getElementById('ref-total-count').textContent=converted.length;
-  document.getElementById('ref-months-earned').textContent=converted.length;
-  document.getElementById('ref-months-left').textContent=bonusMonthsLeft();
-  const navBadge=document.getElementById('ref-nav-badge');
-  navBadge.style.display=converted.length>0?'inline':'none';
-  if(converted.length>0)navBadge.textContent=converted.length;
-  const list=document.getElementById('ref-history-list');
-  if(!refs.length){
-    list.innerHTML=`<div class="empty"><div class="empty-icon">🔗</div><div class="empty-title">Nenhuma indicação ainda</div><div>Compartilhe seu código e comece a ganhar meses grátis</div></div>`;
-    return;
-  }
-  list.innerHTML=`<div class="ref-history-row" style="font-size:11px;color:var(--text2);font-family:var(--mono);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid var(--border);"><div>Loja</div><div>Status</div><div>Recompensa</div></div>`+
-  refs.map(r=>`<div class="ref-history-row">
-    <div style="font-size:13px;font-weight:600;color:var(--text);">${r.store}<div style="font-size:11px;color:var(--text2);margin-top:2px;font-family:var(--mono);">${r.date}</div></div>
-    <div>${r.paid?`<span style="background:var(--green-bg);color:var(--green);font-size:11px;padding:2px 8px;border-radius:999px;font-family:var(--mono);">✓ Assinou ${r.plan==='equipe'?'Equipe':'Pro'}</span>`:`<span style="background:var(--bg3);color:var(--text2);font-size:11px;padding:2px 8px;border-radius:999px;font-family:var(--mono);">Free</span>`}</div>
-    <div style="font-size:13px;color:${r.paid?'var(--accent)':'var(--text2)'};">${r.paid?'+ 1 mês grátis':'—'}</div>
-  </div>`).join('');
+  document.getElementById('ref-code-display').textContent=user?.ref_code||user?.refCode||'—';
+  // Load referrals from Supabase async
+  supa.from('indicacoes').select('*,loja_indicada:loja_indicada_id(nome_loja,created_at)').eq('loja_referente_id',user.id).then(({data:refs})=>{
+    refs=refs||[];
+    const converted=refs.filter(r=>r.pago);
+    document.getElementById('ref-total-count').textContent=converted.length;
+    document.getElementById('ref-months-earned').textContent=converted.length;
+    document.getElementById('ref-months-left').textContent=bonusMonthsLeft();
+    const navBadge=document.getElementById('ref-nav-badge');
+    navBadge.style.display=converted.length>0?'inline':'none';
+    if(converted.length>0)navBadge.textContent=converted.length;
+    const list=document.getElementById('ref-history-list');
+    if(!refs.length){
+      list.innerHTML=`<div class="empty"><div class="empty-icon">🔗</div><div class="empty-title">Nenhuma indicação ainda</div><div>Compartilhe seu código e comece a ganhar meses grátis</div></div>`;
+      return;
+    }
+    list.innerHTML=`<div class="ref-history-row" style="font-size:11px;color:var(--text2);font-family:var(--mono);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid var(--border);"><div>Loja</div><div>Status</div><div>Recompensa</div></div>`+
+    refs.map(r=>`<div class="ref-history-row">
+      <div style="font-size:13px;font-weight:600;color:var(--text);">${r.loja_indicada?.nome_loja||'—'}<div style="font-size:11px;color:var(--text2);margin-top:2px;font-family:var(--mono);">${r.created_at?fmtDate(r.created_at.split('T')[0]):'—'}</div></div>
+      <div>${r.pago?`<span style="background:var(--green-bg);color:var(--green);font-size:11px;padding:2px 8px;border-radius:999px;font-family:var(--mono);">✓ Assinou ${r.plano_assinado==='equipe'?'Equipe':'Pro'}</span>`:`<span style="background:var(--bg3);color:var(--text2);font-size:11px;padding:2px 8px;border-radius:999px;font-family:var(--mono);">Free</span>`}</div>
+      <div style="font-size:13px;color:${r.pago?'var(--accent)':'var(--text2)'};">${r.pago?'+ 1 mês grátis':'—'}</div>
+    </div>`).join('');
+  });
 }
 
 function copyCode(){
-  const code=user?.refCode||'';
+  const code=user?.ref_code||user?.refCode||'';
   try{
     const ta=document.createElement('textarea');ta.value=code;ta.style.cssText='position:fixed;top:-999px;opacity:0;';
     document.body.appendChild(ta);ta.focus();ta.select();document.execCommand('copy');document.body.removeChild(ta);
@@ -952,22 +1040,26 @@ async function processPayment(method){
     await new Promise(r=>setTimeout(r,600));
   }
   if(user.referredBy&&user.plan==='free')await creditReferrer(user.referredBy,user.store,selPlan);
-  const acc=await getAcc();
-  acc[user.email].plan=selPlan;acc[user.email].referredBy=null;
-  await setAcc(acc);user.plan=selPlan;
+  await setAccUpdate(user.email,{plano:selPlan,referred_by:null});
+  user.plano=selPlan;user.plan=selPlan;
   closeUpgrade();init();
   showToast(`Plano ${selPlan==='pro'?'Pro':'Equipe'} ativado! 🎉`);
 }
 
 async function creditReferrer(refEmail,newStore,paidPlan){
-  const acc=await getAcc();if(!acc[refEmail])return;
-  const ref=acc[refEmail];
-  ref.referrals=ref.referrals||[];
-  ref.referrals.push({store:newStore,paid:true,plan:paidPlan,date:fmtDate(today())});
-  const cur=ref.bonusExpiry&&new Date(ref.bonusExpiry)>new Date()?new Date(ref.bonusExpiry):new Date();
-  cur.setDate(cur.getDate()+30);ref.bonusExpiry=cur.toISOString();
-  acc[refEmail]=ref;await setAcc(acc);
-  if(user.email===refEmail)user=ref;
+  const referrer=await getAccByEmail(refEmail);if(!referrer)return;
+  // Add 30 days bonus
+  const cur=referrer.bonus_expiry&&new Date(referrer.bonus_expiry)>new Date()?new Date(referrer.bonus_expiry):new Date();
+  cur.setDate(cur.getDate()+30);
+  await setAccUpdate(refEmail,{bonus_expiry:cur.toISOString()});
+  // Register indicacao
+  await supa.from('indicacoes').insert([{
+    loja_referente_id:referrer.id,
+    loja_indicada_id:user.id,
+    pago:true,
+    plano_assinado:paidPlan
+  }]);
+  if(user.email===refEmail){user.bonus_expiry=cur.toISOString();}
 }
 
 function fmtCard(el){let v=el.value.replace(/\D/g,'').substring(0,16);el.value=v.replace(/(.{4})/g,'$1 ').trim();}
@@ -1163,15 +1255,33 @@ async function saveLead(){
   const name=document.getElementById('f-name').value.trim();
   const phone=document.getElementById('f-phone').value.trim();
   if(!name||!phone){alert('Nome e telefone são obrigatórios.');return;}
-  const d={name,phone,interest:document.getElementById('f-interest').value,source:document.getElementById('f-source').value,date1:document.getElementById('f-date1').value,nextDate:document.getElementById('f-date2').value,status:document.getElementById('f-status').value,notes:document.getElementById('f-notes').value.trim()};
-  if(editId){const i=leads.findIndex(l=>l.id===editId);if(i>-1)leads[i]={...leads[i],...d,updatedAt:Date.now()};}
-  else leads.push({...d,id:Date.now().toString(),createdAt:Date.now(),history:[]});
-  await saveLeads();closeLeadModal();init();
+  const row={
+    loja_id:user.id,
+    nome:name,
+    telefone:phone,
+    interesse:document.getElementById('f-interest').value,
+    origem:document.getElementById('f-source').value,
+    data_contato:document.getElementById('f-date1').value||null,
+    proximo_followup:document.getElementById('f-date2').value||null,
+    status:document.getElementById('f-status').value,
+    observacoes:document.getElementById('f-notes').value.trim(),
+    updated_at:new Date().toISOString()
+  };
+  if(editId){
+    await supa.from('leads').update(row).eq('id',editId);
+  } else {
+    row.historico=[];
+    await supa.from('leads').insert([row]);
+  }
+  leads=await getLeadsByLoja(user.id);
+  leads=leads.map(l=>({id:l.id,name:l.nome,phone:l.telefone,interest:l.interesse,source:l.origem,status:l.status,date1:l.data_contato,nextDate:l.proximo_followup,notes:l.observacoes,history:l.historico||[],createdAt:new Date(l.created_at).getTime()}));
+  closeLeadModal();init();
 }
 
 async function delLead(id){
   if(!confirm('Remover este lead?'))return;
-  leads=leads.filter(l=>l.id!==id);await saveLeads();init();
+  await supa.from('leads').delete().eq('id',id);
+  leads=leads.filter(l=>l.id!==id);init();
 }
 function editLead(id){openLeadModal(leads.find(l=>l.id===id));}
 
@@ -1200,15 +1310,21 @@ function closeDetail(){document.getElementById('detail-modal').classList.remove(
 function editFromDetail(){const l=leads.find(x=>x.id===detailId);closeDetail();if(l)openLeadModal(l);}
 
 async function markContacted(){
-  const idx=leads.findIndex(x=>x.id===detailId);if(idx===-1)return;
+  const lead=leads.find(x=>x.id===detailId);if(!lead)return;
   const note=prompt('Observação sobre este contato (opcional):')||'Contato realizado.';
-  leads[idx].history=leads[idx].history||[];
-  leads[idx].history.unshift({note,date:fmtDate(today())});
-  leads[idx].status='followup';
+  const history=[{note,date:fmtDate(today())},...(lead.history||[])];
+  let nextDate=lead.nextDate;
   const nd=prompt('Agendar próximo follow-up em quantos dias?','3');
-  if(nd&&!isNaN(nd)){const nx=new Date();nx.setDate(nx.getDate()+parseInt(nd));leads[idx].nextDate=nx.toISOString().split('T')[0];}
-  leads[idx].updatedAt=Date.now();
-  await saveLeads();closeDetail();init();
+  if(nd&&!isNaN(nd)){const nx=new Date();nx.setDate(nx.getDate()+parseInt(nd));nextDate=nx.toISOString().split('T')[0];}
+  await supa.from('leads').update({
+    status:'followup',
+    historico:history,
+    proximo_followup:nextDate,
+    updated_at:new Date().toISOString()
+  }).eq('id',detailId);
+  leads=await getLeadsByLoja(user.id);
+  leads=leads.map(l=>({id:l.id,name:l.nome,phone:l.telefone,interest:l.interesse,source:l.origem,status:l.status,date1:l.data_contato,nextDate:l.proximo_followup,notes:l.observacoes,history:l.historico||[],createdAt:new Date(l.created_at).getTime()}));
+  closeDetail();init();
 }
 
 ['lead-modal','detail-modal','wa-modal','upgrade-modal'].forEach(id=>
@@ -1217,9 +1333,33 @@ async function markContacted(){
 document.getElementById('li-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
 document.getElementById('re-pass2').addEventListener('keydown',e=>{if(e.key==='Enter')doRegister();});
 
-window.addEventListener('load',()=>{
+// ── DEVICE FINGERPRINT
+function getDeviceId(){
+  let id=localStorage.getItem('en-device-id');
+  if(!id){
+    id='dev-'+Date.now()+'-'+Math.random().toString(36).substring(2,9);
+    localStorage.setItem('en-device-id',id);
+  }
+  return id;
+}
+
+// ── SESSION RESTORE
+window.addEventListener('load',async()=>{
   document.getElementById('auth-screen').style.display='flex';
   document.getElementById('app-screen').style.display='none';
+  // Check if user has active session
+  const{data:{session}}=await supa.auth.getSession();
+  if(session){
+    const loja=await getLojaByUserId(session.user.id);
+    if(loja){enterApp(loja);return;}
+  }
+  // Listen for auth state changes (e.g. email confirmation redirect)
+  supa.auth.onAuthStateChange(async(event,session)=>{
+    if(event==='SIGNED_IN'&&session&&!user){
+      const loja=await getLojaByUserId(session.user.id);
+      if(loja)enterApp(loja);
+    }
+  });
 });
 </script>
 </body>
