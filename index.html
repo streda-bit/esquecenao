@@ -1524,13 +1524,13 @@ function renderAdminKpis(){
   const mrr=(proReal*79)+(equipeReal*149);
   const totalPagantes=proReal+equipeReal;
   const ltv=totalPagantes>0?Math.round(mrr/totalPagantes*12):0;
-  const conv=total>0?Math.round((pro+equipe)/total*100):0;
+  const cortesiaTotal=procortesia+equipeCortesia;
+  const conv=total>0?Math.round(totalPagantes/total*100):0;
 
   document.getElementById('admin-mrr').textContent='R$'+mrr.toLocaleString('pt-BR');
-  const cortesiaTotal=procortesia+equipeCortesia;
   document.getElementById('admin-mrr-sub').textContent=`${proReal} Pro + ${equipeReal} Equipe pagantes${cortesiaTotal>0?' · '+cortesiaTotal+' cortesia (não contabilizado)':''}`;
   document.getElementById('admin-conversion').textContent=conv+'%';
-  document.getElementById('admin-conversion-sub').textContent=`${pro+equipe} pagantes de ${total} cadastros`;
+  document.getElementById('admin-conversion-sub').textContent=`${totalPagantes} pagante${totalPagantes!==1?'s':''} real${totalPagantes!==1?'is':''} de ${total} cadastros${cortesiaTotal>0?' ('+cortesiaTotal+' cortesia excluída)':''}`;
 
   document.getElementById('admin-kpis').innerHTML=`
     <div class="stat-card"><div class="stat-label">Total de Lojas</div><div class="stat-value">${total}</div><div class="stat-sub">cadastradas</div></div>
