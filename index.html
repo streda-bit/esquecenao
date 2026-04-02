@@ -813,12 +813,14 @@ async function doResetPassword(){
     re.textContent='Erro ao salvar senha. Tente novamente.';re.style.display='block';
   } else {
     re.style.display='none';
-    showToast('Senha alterada com sucesso! ✅');
-    // Sign out and go to login
+    isPasswordRecovery=false;
+    showToast('Senha alterada com sucesso! Faça login com a nova senha. ✅');
     await supa.auth.signOut();
+    user=null;leads=[];
     document.getElementById('reset-form').style.display='none';
     document.getElementById('login-form').style.display='block';
     document.getElementById('tab-login').className='auth-tab active';
+    document.getElementById('tab-register').className='auth-tab';
   }
 }
 function showErr(m){const e=document.getElementById('auth-error');e.textContent=m;e.style.display='block';document.getElementById('auth-success').style.display='none';}
@@ -1457,9 +1459,10 @@ window.addEventListener('load',async()=>{
     if(loja){enterApp(loja);return;}
   }
   // Listen for auth state changes (e.g. email confirmation redirect)
+  let isPasswordRecovery=false;
   supa.auth.onAuthStateChange(async(event,session)=>{
     if(event==='PASSWORD_RECOVERY'){
-      // Show reset password form
+      isPasswordRecovery=true;
       document.getElementById('auth-screen').style.display='flex';
       document.getElementById('app-screen').style.display='none';
       document.getElementById('login-form').style.display='none';
@@ -1470,9 +1473,12 @@ window.addEventListener('load',async()=>{
       document.getElementById('tab-register').className='auth-tab';
       return;
     }
-    if(event==='SIGNED_IN'&&session&&!user){
+    if(event==='SIGNED_IN'&&session&&!user&&!isPasswordRecovery){
       const loja=await getLojaByUserId(session.user.id);
       if(loja)enterApp(loja);
+    }
+    if(event==='USER_UPDATED'&&isPasswordRecovery){
+      isPasswordRecovery=false;
     }
   });
 });
