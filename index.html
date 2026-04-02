@@ -1449,36 +1449,57 @@ function getDeviceId(){
 }
 
 // ── SESSION RESTORE
+function showResetForm(){
+  document.getElementById('auth-screen').style.display='flex';
+  document.getElementById('app-screen').style.display='none';
+  document.getElementById('login-form').style.display='none';
+  document.getElementById('register-form').style.display='none';
+  document.getElementById('forgot-form').style.display='none';
+  document.getElementById('reset-form').style.display='block';
+  document.getElementById('tab-login').className='auth-tab';
+  document.getElementById('tab-register').className='auth-tab';
+}
+
 window.addEventListener('load',async()=>{
   document.getElementById('auth-screen').style.display='flex';
   document.getElementById('app-screen').style.display='none';
-  // Check if user has active session
+
+  // Check URL hash FIRST — if it's a password recovery link, show reset form immediately
+  const hash=window.location.hash;
+  const params=new URLSearchParams(hash.replace('#',''));
+  const type=params.get('type');
+  const accessToken=params.get('access_token');
+
+  if(type==='recovery'&&accessToken){
+    // Set session from token so updateUser works
+    await supa.auth.setSession({
+      access_token:accessToken,
+      refresh_token:params.get('refresh_token')||''
+    });
+    showResetForm();
+    // Clear hash from URL
+    history.replaceState(null,'',window.location.pathname);
+    return;
+  }
+
+  // Check if user has active session (normal login)
   const{data:{session}}=await supa.auth.getSession();
   if(session){
     const loja=await getLojaByUserId(session.user.id);
     if(loja){enterApp(loja);return;}
   }
-  // Listen for auth state changes (e.g. email confirmation redirect)
-  let isPasswordRecovery=false;
+
+  // Listen for auth state changes
   supa.auth.onAuthStateChange(async(event,session)=>{
     if(event==='PASSWORD_RECOVERY'){
-      isPasswordRecovery=true;
-      document.getElementById('auth-screen').style.display='flex';
-      document.getElementById('app-screen').style.display='none';
-      document.getElementById('login-form').style.display='none';
-      document.getElementById('register-form').style.display='none';
-      document.getElementById('forgot-form').style.display='none';
-      document.getElementById('reset-form').style.display='block';
-      document.getElementById('tab-login').className='auth-tab';
-      document.getElementById('tab-register').className='auth-tab';
-      return;
+      showResetForm();return;
     }
-    if(event==='SIGNED_IN'&&session&&!user&&!isPasswordRecovery){
-      const loja=await getLojaByUserId(session.user.id);
-      if(loja)enterApp(loja);
-    }
-    if(event==='USER_UPDATED'&&isPasswordRecovery){
-      isPasswordRecovery=false;
+    if(event==='SIGNED_IN'&&session&&!user){
+      // Only auto-login if not coming from a recovery link
+      if(type!=='recovery'){
+        const loja=await getLojaByUserId(session.user.id);
+        if(loja)enterApp(loja);
+      }
     }
   });
 });
