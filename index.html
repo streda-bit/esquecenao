@@ -294,7 +294,26 @@ textarea{resize:vertical;min-height:80px}
       <div class="form-row"><label>E-mail da loja</label><input type="email" id="li-email" placeholder="sualore@email.com"></div>
       <div class="form-row"><label>Senha</label><input type="password" id="li-pass" placeholder="••••••••"></div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px;" onclick="doLogin()">Entrar →</button>
+      <p style="font-size:12px;color:var(--text2);text-align:center;margin-top:12px;"><span onclick="showForgotPassword()" style="color:var(--accent);cursor:pointer;text-decoration:underline;">Esqueci minha senha</span></p>
     </div>
+    <!-- FORGOT PASSWORD FORM -->
+    <div id="forgot-form" style="display:none">
+      <div class="auth-msg auth-error" id="forgot-error"></div>
+      <div class="auth-msg auth-success" id="forgot-success"></div>
+      <div class="form-row"><label>E-mail da conta</label><input type="email" id="forgot-email" placeholder="sualore@email.com"></div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px;" onclick="doForgotPassword()">Enviar link de redefinição →</button>
+      <p style="font-size:12px;color:var(--text2);text-align:center;margin-top:12px;"><span onclick="switchTab('login')" style="cursor:pointer;color:var(--accent);text-decoration:underline;">Voltar ao login</span></p>
+    </div>
+
+    <!-- RESET PASSWORD FORM -->
+    <div id="reset-form" style="display:none">
+      <div class="auth-msg auth-error" id="reset-error"></div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">Digite sua nova senha abaixo.</div>
+      <div class="form-row"><label>Nova senha</label><input type="password" id="reset-pass" placeholder="Min. 6 caracteres"></div>
+      <div class="form-row"><label>Confirmar nova senha</label><input type="password" id="reset-pass2" placeholder="Repetir"></div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px;" onclick="doResetPassword()">Salvar nova senha →</button>
+    </div>
+
     <div id="register-form" style="display:none">
       <div class="form-row"><label>Nome da loja</label><input type="text" id="re-store" placeholder="iPhone Store SP"></div>
       <div class="form-row"><label>E-mail</label><input type="email" id="re-email" placeholder="sualore@email.com"></div>
@@ -738,13 +757,76 @@ async function validateRefCode(el){
 function switchTab(t){
   document.getElementById('login-form').style.display=t==='login'?'block':'none';
   document.getElementById('register-form').style.display=t==='register'?'block':'none';
+  document.getElementById('forgot-form').style.display='none';
+  document.getElementById('reset-form').style.display='none';
   document.getElementById('tab-login').className='auth-tab'+(t==='login'?' active':'');
   document.getElementById('tab-register').className='auth-tab'+(t==='register'?' active':'');
   clearMsg();
 }
+
+function showForgotPassword(){
+  document.getElementById('login-form').style.display='none';
+  document.getElementById('register-form').style.display='none';
+  document.getElementById('forgot-form').style.display='block';
+  document.getElementById('reset-form').style.display='none';
+  document.getElementById('tab-login').className='auth-tab';
+  document.getElementById('tab-register').className='auth-tab';
+  clearMsg();
+  const fe=document.getElementById('forgot-error');
+  const fs=document.getElementById('forgot-success');
+  if(fe)fe.style.display='none';
+  if(fs)fs.style.display='none';
+}
+
+async function doForgotPassword(){
+  const email=document.getElementById('forgot-email').value.trim().toLowerCase();
+  if(!email){
+    const e=document.getElementById('forgot-error');e.textContent='Digite seu e-mail.';e.style.display='block';return;
+  }
+  const btn=document.querySelector('#forgot-form .btn-primary');
+  btn.textContent='Enviando...';btn.disabled=true;
+  const{error}=await supa.auth.resetPasswordForEmail(email,{
+    redirectTo:'https://www.esquecenao.com.br'
+  });
+  btn.textContent='Enviar link de redefinição →';btn.disabled=false;
+  const fe=document.getElementById('forgot-error');
+  const fs=document.getElementById('forgot-success');
+  if(error){
+    fe.textContent='Erro ao enviar e-mail. Verifique o endereço e tente novamente.';fe.style.display='block';
+  } else {
+    fe.style.display='none';
+    fs.textContent='Link enviado! Verifique sua caixa de entrada. 📧';fs.style.display='block';
+  }
+}
+
+async function doResetPassword(){
+  const pass=document.getElementById('reset-pass').value;
+  const pass2=document.getElementById('reset-pass2').value;
+  const re=document.getElementById('reset-error');
+  if(pass.length<6){re.textContent='Senha deve ter ao menos 6 caracteres.';re.style.display='block';return;}
+  if(pass!==pass2){re.textContent='As senhas não coincidem.';re.style.display='block';return;}
+  const btn=document.querySelector('#reset-form .btn-primary');
+  btn.textContent='Salvando...';btn.disabled=true;
+  const{error}=await supa.auth.updateUser({password:pass});
+  btn.textContent='Salvar nova senha →';btn.disabled=false;
+  if(error){
+    re.textContent='Erro ao salvar senha. Tente novamente.';re.style.display='block';
+  } else {
+    re.style.display='none';
+    showToast('Senha alterada com sucesso! ✅');
+    // Sign out and go to login
+    await supa.auth.signOut();
+    document.getElementById('reset-form').style.display='none';
+    document.getElementById('login-form').style.display='block';
+    document.getElementById('tab-login').className='auth-tab active';
+  }
+}
 function showErr(m){const e=document.getElementById('auth-error');e.textContent=m;e.style.display='block';document.getElementById('auth-success').style.display='none';}
 function showOk(m){const e=document.getElementById('auth-success');e.textContent=m;e.style.display='block';document.getElementById('auth-error').style.display='none';}
-function clearMsg(){document.getElementById('auth-error').style.display='none';document.getElementById('auth-success').style.display='none';}
+function clearMsg(){
+  document.getElementById('auth-error').style.display='none';
+  document.getElementById('auth-success').style.display='none';
+}
 
 async function doLogin(){
   const email=document.getElementById('li-email').value.trim().toLowerCase();
@@ -1376,6 +1458,18 @@ window.addEventListener('load',async()=>{
   }
   // Listen for auth state changes (e.g. email confirmation redirect)
   supa.auth.onAuthStateChange(async(event,session)=>{
+    if(event==='PASSWORD_RECOVERY'){
+      // Show reset password form
+      document.getElementById('auth-screen').style.display='flex';
+      document.getElementById('app-screen').style.display='none';
+      document.getElementById('login-form').style.display='none';
+      document.getElementById('register-form').style.display='none';
+      document.getElementById('forgot-form').style.display='none';
+      document.getElementById('reset-form').style.display='block';
+      document.getElementById('tab-login').className='auth-tab';
+      document.getElementById('tab-register').className='auth-tab';
+      return;
+    }
     if(event==='SIGNED_IN'&&session&&!user){
       const loja=await getLojaByUserId(session.user.id);
       if(loja)enterApp(loja);
